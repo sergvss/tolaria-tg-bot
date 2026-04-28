@@ -7,7 +7,7 @@ compatibility_date = "2026-04-01"
 [triggers]
 crons = ["* * * * *"]
 
-# KV namespace для хранения last_offset будет добавлен на этапе 3:
-# [[kv_namespaces]]
-# binding = "OFFSETS"
-# id = "<заполнится после wrangler kv namespace create>"
+# KV namespace для хранения last_offset (id Telegram update, обработанного последним).
+[[kv_namespaces]]
+binding = "OFFSETS"
+id = "410edc526233474b9ac2e0db9117ce5d"

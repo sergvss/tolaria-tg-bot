@@ -1,0 +1,10 @@
+# Шаблон локальных секретов для wrangler dev.
+# Скопируй в .dev.vars (он в .gitignore) и заполни своими значениями.
+# В продакшене wrangler читает значения из Cloudflare secrets, не из этого файла.
+
+BOT_TOKEN=
+ALLOWED_USER_ID=
+GH_TOKEN=
+GH_REPO=sergvss/mynote
+GH_FOLDER=inbox
+# GH_BRANCH=main  # опционально, дефолт main в коде
