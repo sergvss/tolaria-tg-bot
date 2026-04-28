@@ -1,5 +1,3 @@
-import { slug } from './slug'
-
 export interface NoteFile {
   path: string
   content: string
@@ -12,9 +10,10 @@ export function buildNote(text: string, unixDate: number, folder: string): NoteF
   const dd = String(date.getUTCDate()).padStart(2, '0')
   const hh = String(date.getUTCHours()).padStart(2, '0')
   const min = String(date.getUTCMinutes()).padStart(2, '0')
-  const ts = `${yyyy}-${mm}-${dd}-${hh}${min}`
+  const ss = String(date.getUTCSeconds()).padStart(2, '0')
+  const ts = `${yyyy}-${mm}-${dd}-${hh}${min}${ss}`
 
-  const filename = `${ts}-${slug(text)}.md`
+  const filename = `${ts}.md`
   const cleanFolder = folder.replace(/^\/+|\/+$/g, '')
   const path = cleanFolder ? `${cleanFolder}/${filename}` : filename
 

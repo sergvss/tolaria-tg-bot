@@ -35,15 +35,15 @@ src/
   index.ts      // entry, scheduled handler, оркестрация цикла
   telegram.ts   // getUpdates, парсинг update, валидация from.id
   github.ts     // PUT в Contents API, retry на 422
-  slug.ts      // транслит кириллицы, kebab-case первых 5 слов
+  markdown.ts   // имя файла YYYY-MM-DD-HHMMSS.md, frontmatter, тело
 ```
 
 ## Формат файла
 
-**Имя:** `<GH_FOLDER>/2026-04-28-1845-my-first-thought.md`
+**Имя:** `<GH_FOLDER>/2026-04-28-184515.md`
 
-- `YYYY-MM-DD-HHMM` берётся из `message.date` (UTC -> в timezone из конфига или UTC)
-- `<slug>` — первые 5 слов сообщения, транслит кириллицы в латиницу, kebab-case
+- `YYYY-MM-DD-HHMMSS` берётся из `message.date` (UTC)
+- Имя не зависит от текста сообщения — однозначно по моменту получения
 
 **Тело:**
 

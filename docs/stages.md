@@ -15,7 +15,7 @@
 **Что делается:**
 - `pnpm dlx wrangler init` в корне репо
 - Настроить TypeScript, vitest
-- Создать пустые `src/index.ts`, `src/telegram.ts`, `src/github.ts`, `src/slug.ts`
+- Создать пустые `src/index.ts`, `src/telegram.ts`, `src/github.ts`, `src/markdown.ts`
 - В `wrangler.toml`:
   - `[triggers]` cron `* * * * *` (каждую минуту)
   - `main = "src/index.ts"`
@@ -31,17 +31,17 @@
 
 **Порядок написания (каждый шаг — тесты вперёд кода):**
 
-1. **`slug.ts`** — транслит кириллицы (по таблице ГОСТ или похожей) и kebab-case первых 5 слов.
-   _Тесты:_ пустая строка, только эмодзи, числа, длинные слова, смесь кириллицы и латиницы, дефисы, пунктуация.
+1. **`markdown.ts`** — `buildNote(text, unixDate, folder)` собирает имя файла `YYYY-MM-DD-HHMMSS.md` (UTC) и тело с YAML frontmatter (`captured_at`, `source: telegram`); `withRandomSuffix(path, hex)` для retry на коллизии.
+   _Тесты:_ паддинг времени нулями, нормализация слешей в folder, имя не зависит от текста.
 
 2. **`telegram.ts`** — типы `Update`, `Message`; функция `getUpdates(token, offset)` через `fetch`; фильтр `isAllowedTextMessage(update, allowedUserId)`.
    _Тесты:_ парсинг типичного апдейта, фильтр по `from.id`, отсутствие `text`, сообщения из групп.
 
-3. **`markdown` builder** (внутри `index.ts` или отдельный модуль) — сборка имени файла из `message.date` + slug; YAML frontmatter; полный markdown.
-   _Тесты:_ детерминированное имя при фиксированных входных, корректный ISO timestamp.
-
-4. **`github.ts`** — `putFile(token, repo, branch, path, contentBase64, message)`; обработка 422 -> retry с суффиксом `-{rand4hex}` (максимум 3 попытки, потом ошибка в лог).
+3. **`github.ts`** — `putFile(params)` с PUT в Contents API; `PathConflictError` на HTTP 422 для последующего retry с `withRandomSuffix` в оркестраторе (максимум 3 попытки).
    _Тесты:_ моки fetch для 201/422/401.
+
+4. **`index.ts`** — оркестратор: read offset из KV → `getUpdates` → for-each (фильтр + buildNote + putFile с retry на 422) → write новый offset.
+   _Тесты:_ пустой батч, allowed/не-allowed, retry, бросок после max попыток.
 
 **Критерий готовности:**
 - Все unit-тесты зелёные
