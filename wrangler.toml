@@ -1,0 +1,13 @@
+name = "tolaria-tg-bot"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+
+# Cron trigger: запускать Worker каждую минуту.
+# scheduled-handler опрашивает Telegram getUpdates и коммитит новые сообщения.
+[triggers]
+crons = ["* * * * *"]
+
+# KV namespace для хранения last_offset будет добавлен на этапе 3:
+# [[kv_namespaces]]
+# binding = "OFFSETS"
+# id = "<заполнится после wrangler kv namespace create>"
