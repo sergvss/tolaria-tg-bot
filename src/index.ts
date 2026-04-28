@@ -59,7 +59,7 @@ async function commitWithRetry(
           branch,
           path,
           content: note.content,
-          commitMessage: `Добавить ${path}`,
+          commitMessage: `Add ${path}`,
         },
         fetchImpl,
       )

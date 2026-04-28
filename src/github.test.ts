@@ -7,7 +7,7 @@ const VALID_PARAMS = {
   branch: 'main',
   path: 'inbox/2026-04-28-1845-test.md',
   content: 'hello world',
-  commitMessage: 'Добавить заметку',
+  commitMessage: 'Add note',
 }
 
 function mockSuccess(): ReturnType<typeof vi.fn> {
@@ -122,7 +122,7 @@ describe('putFile', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit
     const body = JSON.parse(init.body as string)
     expect(body.branch).toBe('main')
-    expect(body.message).toBe('Добавить заметку')
+    expect(body.message).toBe('Add note')
     expect(body.content).toBe(utf8ToBase64('hello world'))
   })
 
