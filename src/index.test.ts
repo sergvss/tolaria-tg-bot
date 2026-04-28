@@ -54,7 +54,7 @@ function makeFetch(opts: {
   github?: MockResponse[]
 }) {
   let ghIdx = 0
-  return vi.fn(async (input: RequestInfo | URL) => {
+  return vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input)
     if (url.includes('api.telegram.org')) {
       return new Response(JSON.stringify({ ok: true, result: opts.telegram ?? [] }), {
