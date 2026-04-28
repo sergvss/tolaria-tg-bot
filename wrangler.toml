@@ -7,6 +7,10 @@ compatibility_date = "2026-04-01"
 [triggers]
 crons = ["* * * * *"]
 
+# Включить Workers Logs - видно каждый cron tick и console.log в дашборде Cloudflare.
+[observability]
+enabled = true
+
 # KV namespace для хранения last_offset (id Telegram update, обработанного последним).
 [[kv_namespaces]]
 binding = "OFFSETS"
