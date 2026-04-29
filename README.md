@@ -1,6 +1,6 @@
 # tolaria-tg-bot
 
-Минималистичный Telegram-бот в одном Cloudflare Worker. Запускается по cron каждую минуту, забирает текстовые сообщения из личного чата с тобой и коммитит каждое как отдельный markdown-файл в указанную папку приватного GitHub-репозитория.
+Минималистичный Telegram-бот в одном Cloudflare Worker. Запускается по cron каждую минуту, забирает текст и фото из личного чата с тобой и коммитит каждое как markdown-файл (а фото — в `attachments/`) в указанный приватный GitHub-репозиторий.
 
 Никаких серверов, БД, Docker — только Cloudflare Workers + Cloudflare KV (бесплатный план). Совместим с приложением [Tolaria](https://github.com/sergvss/tolaria-vss) (заметки автоматически попадают в его раздел Inbox), но работает с любой markdown-vault системой.
 
@@ -10,24 +10,41 @@
 [Cron каждую минуту]
     -> [Cloudflare Worker]
     -> Telegram getUpdates(offset)
-    -> для каждого нового сообщения:
-         GitHub API PUT /<GH_REPO>/contents/<GH_FOLDER>/YYYY-MM-DD-HHMMSS.md
+    -> для каждого allowed message:
+         если фото:
+           Telegram getFile + downloadFile (binary)
+           GitHub PUT /<GH_REPO>/attachments/YYYY-MM-DD-HHMMSS-<id>.<ext>
+         GitHub PUT /<GH_REPO>/<GH_FOLDER>/YYYY-MM-DD-HHMMSS.md (заметка с markdown-ссылкой на фото)
     -> сохранить новый offset в Cloudflare KV
 ```
 
 **Один авторизованный пользователь.** Сообщения от любого другого Telegram-аккаунта игнорируются (offset двигается, но коммита нет — Telegram забывает апдейт).
 
-**Только текст.** Голосовые, фото, документы пропускаются.
+## Поддерживаемые типы сообщений (v1.1)
+
+| Тип | Поведение |
+|---|---|
+| **Текст** | Заметка с frontmatter + H1 (первая строка) + body (остальное) |
+| **Фото** | Картинка в `attachments/`, заметка с markdown-ссылкой `![photo.jpg](attachments/...)` |
+| **Фото + подпись** | Caption становится заголовком и body заметки, картинка ссылкой в конце |
+| **Forward из канала/чата** | Добавляется поле `forwarded_from: "<source>"` в frontmatter |
+| Голосовые, видео, документы | **Пока пропускаются.** Запланированы в v1.2 (видео) и v1.3 (голосовые с авто-транскрипцией через OpenRouter) |
 
 **Имя файла:** `YYYY-MM-DD-HHMMSS.md` по UTC. Коллизия (если два сообщения в одну секунду) решается суффиксом `-{rand4hex}`.
+
+**Имя картинки:** `YYYY-MM-DD-HHMMSS-<file_unique_id>.<ext>`. Дубликаты идемпотентны (PUT с тем же `file_unique_id` молча игнорируется).
 
 **Frontmatter:**
 ```yaml
 ---
 captured_at: 2026-04-29T01:23:45Z
 source: telegram
+type: Note
+forwarded_from: "Channel Name"  # только для forward'ов
 ---
 ```
+
+`type: Note` нужен для совместимости с категоризацией заметок в Tolaria. Поле `organized` намеренно НЕ ставится — заметка автоматически попадает в виртуальный Inbox.
 
 ## Стек
 
@@ -134,13 +151,16 @@ https://github.com/<GH_REPO>/tree/main/<GH_FOLDER>
 
 ```
 src/
-  index.ts        // scheduled-handler + оркестратор processUpdates
+  index.ts        // scheduled-handler + processUpdates оркестратор
+                  // (фильтр, скачивание фото, retry заметки)
   index.test.ts
-  telegram.ts     // типы Bot API, getUpdates, isAllowedTextMessage
+  telegram.ts     // типы Bot API, getUpdates, getFile, downloadFile,
+                  // фильтры isAllowedTextMessage / isAllowedPhotoMessage
   telegram.test.ts
-  github.ts       // putFile через Contents API + retry helpers
+  github.ts       // putFile (текст), putBinary (картинки), retry helpers
   github.test.ts
-  markdown.ts     // имя файла YYYY-MM-DD-HHMMSS.md, frontmatter, тело
+  markdown.ts     // buildNote (Variant 2 с type:Note + H1 + attachments),
+                  // buildAttachmentPath, withRandomSuffix
   markdown.test.ts
 docs/
   architecture.md // подробная архитектура и решения
@@ -153,7 +173,7 @@ wrangler.toml     // конфигурация Worker'а: cron, KV binding, obser
 ## Локальная разработка
 
 ```bash
-pnpm test          # vitest, 44 теста
+pnpm test          # vitest, 88 тестов
 pnpm test:watch    # vitest в watch-режиме
 pnpm typecheck     # tsc --noEmit
 pnpm dev           # wrangler dev (для smoke-проверки, требует .dev.vars)
@@ -170,13 +190,16 @@ pnpm wrangler tail # потоковые логи (требует wrangler 4+)
 
 Альтернатива — настроить GitHub Actions для авто-деплоя на push в `main` (см. https://github.com/cloudflare/wrangler-action).
 
-## Что вне скоупа v1
+## Что вне скоупа v1.1
 
 - Multi-user / OAuth flow / GitHub App
-- Голосовые сообщения, фото, документы
+- Голосовые и аудио — запланированы в v1.3 с авто-транскрипцией через OpenRouter
+- Видео и видео-сообщения (кружочки) — запланированы в v1.2
+- Документы (`message.document`)
 - Команды бота (`/start`, `/help`)
 - Настройка целевой репы через чат
 - Webhook (выбран cron polling сознательно — единственный invocation point у serverless)
+- Объединение альбомов (несколько фото с одним `media_group_id`) в одну заметку — пока каждое фото = отдельная заметка
 
 ## Документация
 

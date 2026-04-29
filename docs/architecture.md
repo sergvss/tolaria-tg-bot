@@ -13,9 +13,17 @@
 3. Worker делает `GET https://api.telegram.org/bot<BOT_TOKEN>/getUpdates?offset=<last_offset>&timeout=0&allowed_updates=["message"]`
 4. Telegram возвращает массив новых апдейтов (или пустой массив)
 5. Для каждого `update`:
-   - Если нет `message.text` -> пропуск (фото, голос, документы игнорируются)
-   - Если `message.from.id != ALLOWED_USER_ID` -> пропуск (молча)
-   - Иначе: формирование имени файла и тела, `PUT` в GitHub Contents API
+   - Если `message.from.id != ALLOWED_USER_ID` -> пропуск (молча, но offset двигается)
+   - Если `isAllowedMessage` (текст или фото от разрешённого юзера):
+     - **Если есть `message.photo`:**
+       1. Берём самый большой `photoSize` через `pickLargestPhoto`
+       2. `getFile(file_id)` → `file_path`
+       3. `downloadFile(file_path)` → `Uint8Array`
+       4. `putBinary` в `attachments/<YYYY-MM-DD-HHMMSS>-<file_unique_id>.<ext>` (idempotent на 422 — дубликаты skip)
+       5. Запоминаем `attachment` для заметки
+     - `buildNote({text, caption, attachments, forwardedFrom, ...})` собирает markdown
+     - `putFile` в `<GH_FOLDER>/<YYYY-MM-DD-HHMMSS>.md` (с retry на 422 — суффикс `-{rand4hex}`, до 3 попыток)
+   - Иначе (видео, голос, документ) -> пропуск (offset двигается)
 6. После обработки всех — `PUT` в KV: `last_offset = max(update_id) + 1`
 7. Worker завершается
 
@@ -32,38 +40,62 @@
 
 ```
 src/
-  index.ts      // entry, scheduled handler, оркестрация цикла
-  telegram.ts   // getUpdates, парсинг update, валидация from.id
-  github.ts     // PUT в Contents API, retry на 422
-  markdown.ts   // имя файла YYYY-MM-DD-HHMMSS.md, frontmatter, тело
+  index.ts      // entry, scheduled handler, оркестрация цикла, обработка фото
+  telegram.ts   // типы Bot API, getUpdates/getFile/downloadFile,
+                // фильтры isAllowedTextMessage/isAllowedPhotoMessage,
+                // pickLargestPhoto, getForwardChatTitle
+  github.ts     // putFile (текст) и putBinary (картинки) через Contents API,
+                // retry helpers, утилиты utf8ToBase64/bytesToBase64
+  markdown.ts   // buildNote (Variant 2: type:Note + H1 + attachments),
+                // buildAttachmentPath, withRandomSuffix
 ```
 
 ## Формат файла
 
-**Имя:** `<GH_FOLDER>/2026-04-28-184515.md`
+**Имя заметки:** `<GH_FOLDER>/2026-04-28-184515.md`
 
 - `YYYY-MM-DD-HHMMSS` берётся из `message.date` (UTC)
 - Имя не зависит от текста сообщения — однозначно по моменту получения
 
-**Тело:**
+**Имя картинки:** `attachments/2026-04-28-184515-<file_unique_id>.<ext>`
+
+- `file_unique_id` — короткий уникальный ID Telegram, защищает от случайных дубликатов
+- `<ext>` определяется из `file_path` ответа Telegram getFile (`.jpg`/`.png`/`.webp`)
+- Идемпотентно: если такая картинка уже есть в репе — PUT 422 silent skip, заметка всё равно создаётся
+
+**Тело (Variant 2):**
 
 ```markdown
 ---
-captured_at: 2026-04-28T18:45:00Z
+captured_at: 2026-04-28T18:45:15Z
 source: telegram
+type: Note
+forwarded_from: "Channel Name"
 ---
+# Первая строка текста (или caption)
 
-Текст сообщения как есть.
+Остальные строки
+
+![photo.jpg](attachments/2026-04-28-184515-AgADxxx.jpg)
 ```
 
-**Коллизия имени файла** (HTTP 422 от GitHub) — retry с суффиксом `-{rand4hex}` в имени.
+- `type: Note` — для категоризации в Tolaria
+- `forwarded_from` — только при forward из канала/чата, иначе отсутствует
+- H1 — первая непустая строка text/caption. Если ни text ни caption — H1 не добавляется.
+- Body — остальные строки text/caption
+- Attachments — после body, в формате `![filename](attachments/...)` с относительным путём от корня vault
 
-## Скоуп v1
+**Коллизия имени файла** заметки (HTTP 422 от GitHub) — retry с суффиксом `-{rand4hex}` в имени, до 3 попыток.
+**Коллизия имени attachment** — silent skip (идемпотентность по `file_unique_id`).
 
-- **Только текст.** `message.text`. Голос, фото, видео, документы — пропускаются.
+## Скоуп v1.1
+
+- **Текст и фото.** `message.text`, `message.photo` (с опциональным `message.caption`). Голос, видео, документы — пропускаются (запланированы в v1.2/v1.3).
+- **Forward'ы из каналов/чатов** распознаются и помечаются в frontmatter.
 - **Личный чат.** Не группа, не канал.
 - **Один пользователь.** Whitelist по `ALLOWED_USER_ID`.
 - **Одна целевая репа и папка.** Зашиты в секреты при деплое.
+- **Альбомы (media groups)** — каждое фото = отдельная заметка (объединение в v1.x не делаем).
 
 ## Конфигурация
 
@@ -99,11 +131,13 @@ KV namespace биндится в `wrangler.toml` (это публичный ID, 
 ### Bot Token
 Если PAT или BOT_TOKEN утёк — отозвать в @BotFather (`/revoke`) или GitHub соответственно, перезаписать через `wrangler secret put`.
 
-## Что вне скоупа v1
+## Что вне скоупа v1.1
 
 - Webhook (выбрали cron polling сознательно — единственный invocation point)
 - Multi-user / OAuth flow / GitHub App
-- Голосовые сообщения, фото, документы
+- Голосовые/аудио (v1.3 с транскрипцией через OpenRouter)
+- Видео (v1.2)
+- Документы (`message.document`)
 - Команды бота (`/start`, `/help`, `/status`)
 - Настройка целевой репы через чат (всё в секретах)
 - Любое состояние кроме `last_offset` в KV
