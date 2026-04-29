@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { putFile, utf8ToBase64, randomHex, PathConflictError } from './github'
+import { putFile, putBinary, utf8ToBase64, bytesToBase64, randomHex, PathConflictError } from './github'
 
 const VALID_PARAMS = {
   token: 'gh_pat_xxx',
@@ -24,6 +24,95 @@ function mockSuccess(): ReturnType<typeof vi.fn> {
     ),
   )
 }
+
+describe('bytesToBase64', () => {
+  it('кодирует пустой массив', () => {
+    expect(bytesToBase64(new Uint8Array([]))).toBe('')
+  })
+
+  it('кодирует JPEG-сигнатуру', () => {
+    expect(bytesToBase64(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('/9j/4A==')
+  })
+
+  it('кодирует PNG-сигнатуру', () => {
+    expect(bytesToBase64(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+      .toBe('iVBORw0KGgo=')
+  })
+})
+
+describe('putBinary', () => {
+  it('возвращает path, sha, htmlUrl при успехе', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: {
+            path: 'attachments/photo.jpg',
+            sha: 'binsha',
+            html_url: 'https://github.com/sergvss/mynote/blob/main/attachments/photo.jpg',
+          },
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    const result = await putBinary(
+      {
+        token: 'gh_pat_xxx',
+        repo: 'sergvss/mynote',
+        branch: 'main',
+        path: 'attachments/photo.jpg',
+        content: new Uint8Array([0xff, 0xd8, 0xff]),
+        commitMessage: 'Add attachment',
+      },
+      fetchMock as unknown as typeof fetch,
+    )
+    expect(result.path).toBe('attachments/photo.jpg')
+    expect(result.sha).toBe('binsha')
+  })
+
+  it('кодирует Uint8Array в base64 без UTF-8 интерпретации', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ content: { path: 'x', sha: 'y', html_url: 'z' } }), {
+        status: 201,
+      }),
+    )
+    await putBinary(
+      {
+        token: 't',
+        repo: 'r/r',
+        branch: 'main',
+        path: 'a.bin',
+        content: new Uint8Array([0xff, 0xfe, 0xfd]),
+        commitMessage: 'Add a.bin',
+      },
+      fetchMock as unknown as typeof fetch,
+    )
+    const init = fetchMock.mock.calls[0]![1] as RequestInit
+    const body = JSON.parse(init.body as string)
+    expect(body.content).toBe('//79')
+  })
+
+  it('бросает PathConflictError при HTTP 422', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Invalid request' }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    await expect(
+      putBinary(
+        {
+          token: 't',
+          repo: 'r/r',
+          branch: 'main',
+          path: 'attachments/dup.jpg',
+          content: new Uint8Array([1, 2, 3]),
+          commitMessage: 'Add dup',
+        },
+        fetchMock as unknown as typeof fetch,
+      ),
+    ).rejects.toBeInstanceOf(PathConflictError)
+  })
+})
 
 describe('utf8ToBase64', () => {
   it('кодирует ASCII', () => {

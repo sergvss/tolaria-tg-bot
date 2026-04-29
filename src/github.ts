@@ -7,6 +7,15 @@ export interface PutFileParams {
   commitMessage: string
 }
 
+export interface PutBinaryParams {
+  token: string
+  repo: string
+  branch: string
+  path: string
+  content: Uint8Array
+  commitMessage: string
+}
+
 export interface PutFileResult {
   path: string
   sha: string
@@ -24,10 +33,53 @@ export async function putFile(
   params: PutFileParams,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PutFileResult> {
+  return putContents(
+    {
+      token: params.token,
+      repo: params.repo,
+      branch: params.branch,
+      path: params.path,
+      contentBase64: utf8ToBase64(params.content),
+      commitMessage: params.commitMessage,
+    },
+    fetchImpl,
+  )
+}
+
+export async function putBinary(
+  params: PutBinaryParams,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PutFileResult> {
+  return putContents(
+    {
+      token: params.token,
+      repo: params.repo,
+      branch: params.branch,
+      path: params.path,
+      contentBase64: bytesToBase64(params.content),
+      commitMessage: params.commitMessage,
+    },
+    fetchImpl,
+  )
+}
+
+interface PutContentsParams {
+  token: string
+  repo: string
+  branch: string
+  path: string
+  contentBase64: string
+  commitMessage: string
+}
+
+async function putContents(
+  params: PutContentsParams,
+  fetchImpl: typeof fetch,
+): Promise<PutFileResult> {
   const url = `https://api.github.com/repos/${params.repo}/contents/${encodePath(params.path)}`
   const body = {
     message: params.commitMessage,
-    content: utf8ToBase64(params.content),
+    content: params.contentBase64,
     branch: params.branch,
   }
 
@@ -62,7 +114,10 @@ export async function putFile(
 }
 
 export function utf8ToBase64(s: string): string {
-  const bytes = new TextEncoder().encode(s)
+  return bytesToBase64(new TextEncoder().encode(s))
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]!)
